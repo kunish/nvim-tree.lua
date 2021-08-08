@@ -1,8 +1,7 @@
 local a = vim.api
 local utils = require'nvim-tree.utils'
 local view = require'nvim-tree.view'
-local config = require'nvim-tree.config'
-local icon_state = config.get_icon_state()
+local icon_state = require'nvim-tree.config'.get_icon_state()
 local get_diagnostics = vim.lsp.diagnostic.get_all
 
 local M = {}
@@ -83,6 +82,10 @@ local function from_coc()
 end
 
 function M.update()
+  if not vim.g.nvim_tree_lsp_diagnostics == 1 then
+    return
+  end
+
   local buffer_severity
   if vim.g.coc_service_initialized == 1 then
     buffer_severity = from_coc()
@@ -90,7 +93,7 @@ function M.update()
     buffer_severity = from_nvim_lsp()
   end
 
-  local nodes = require'nvim-tree.lib'.Tree.entries
+  local nodes = require'nvim-tree.lib'.Tree.children
   if #signs then
     vim.fn.sign_unplacelist(vim.tbl_map(function(sign)
       return {

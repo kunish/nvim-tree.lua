@@ -1,168 +1,184 @@
 local utils = require'nvim-tree.utils'
-local M = {}
+local config = require'nvim-tree.config'
 
-local roots = {}
+local M = {
+  -- a list of absolute path with git status info
+  status = {},
+  roots = {},
+}
 
----A map from git roots to a list of ignored paths
-local gitignore_map = {}
+local running_jobs = {}
+local is_win32 = vim.fn.has('win32') == 1
 
-local not_git = 'not a git repo'
-local is_win = vim.api.nvim_call_function("has", {"win32"}) == 1
+local function apply_status_update(root)
+  return function(_, data)
+    local statuses = type(data[1]) == 'table' and data[1] or data
 
-local function update_root_status(root)
-  local e_root = vim.fn.shellescape(root)
-  local untracked = ' -u'
-
-  local cmd = "git -C " .. e_root .. " config --type=bool status.showUntrackedFiles"
-  if vim.trim(vim.fn.system(cmd)) == 'false' then
-    untracked = ''
-  end
-
-  cmd = "git -C " .. e_root .. " status --porcelain=v1 --ignored=matching" .. untracked
-  local status = vim.fn.systemlist(cmd)
-
-  roots[root] = {}
-  gitignore_map[root] = {}
-
-  for _, v in pairs(status) do
-    local head = v:sub(0, 2)
-    local body = v:sub(4, -1)
-    if body:match('%->') ~= nil then
-      body = body:gsub('^.* %-> ', '')
-    end
-
-    --- Git returns paths with a forward slash wherever you run it, thats why i have to replace it only on windows
-    if is_win then
-      body = body:gsub("/", "\\")
-    end
-
-    roots[root][body] = head
-
-    if head == "!!" then
-      gitignore_map[root][utils.path_remove_trailing(utils.path_join({root, body}))] = true
-    end
-  end
-end
-
-function M.reload_roots()
-  for root, status in pairs(roots) do
-    if status ~= not_git then
-      update_root_status(root)
-    end
-  end
-end
-
-local function get_git_root(path)
-  if roots[path] then
-    return path, roots[path]
-  end
-
-  for name, status in pairs(roots) do
-    if status ~= not_git then
-      if path:match(utils.path_to_matching_str(name)) then
-        return name, status
-      end
-    end
-  end
-end
-
-local function create_root(cwd)
-  local cmd = "git -C " .. vim.fn.shellescape(cwd) .. " rev-parse --show-toplevel"
-  local git_root = vim.fn.system(cmd)
-
-  if not git_root or #git_root == 0 or git_root:match('fatal') then
-    roots[cwd] = not_git
-    return false
-  end
-
-  if is_win then
-    git_root = git_root:gsub("/", "\\")
-  end
-
-  update_root_status(git_root:sub(0, -2))
-  return true
-end
-
----Get the root of the git dir containing the given path or `nil` if it's not a
----git dir.
----@param path string
----@return string|nil
-function M.git_root(path)
-  local git_root, git_status = get_git_root(path)
-  if not git_root then
-    if not create_root(path) then
-      return
-    end
-    git_root, git_status = get_git_root(path)
-  end
-
-  if git_status == not_git then
-    return
-  end
-
-  return git_root
-end
-
-function M.update_status(entries, cwd, parent_node, with_redraw)
-  local git_root, git_status = get_git_root(cwd)
-  if not git_root then
-    if not create_root(cwd) then
-      return
-    end
-    git_root, git_status = get_git_root(cwd)
-  elseif git_status == not_git then
-    return
-  end
-
-  if not git_root then
-    return
-  end
-
-  if not parent_node then parent_node = {} end
-
-  local matching_cwd = utils.path_to_matching_str( utils.path_add_trailing(git_root) )
-
-  for _, node in pairs(entries) do
-    if parent_node.git_status == "!!" then
-      node.git_status = "!!"
-    else
-      local relpath = node.absolute_path:gsub(matching_cwd, '')
-      if node.entries ~= nil then
-        relpath = utils.path_add_trailing(relpath)
-        node.git_status = nil
-      end
-
-      local status = git_status[relpath]
-      if status then
-        node.git_status = status
-      elseif node.entries ~= nil then
-        local matcher = '^'..utils.path_to_matching_str(relpath)
-        for key, entry_status in pairs(git_status) do
-          if entry_status ~= "!!" and key:match(matcher) then
-            node.git_status = entry_status
-            break
-          end
+    for _, v in pairs(statuses) do
+      if v ~= "" then
+        local head = v:sub(0, 2)
+        local body = v:sub(4, -1)
+        if body:match('%->') ~= nil then
+          body = body:gsub('^.* %-> ', '')
         end
-      else
-        node.git_status = nil
+
+        M.status[
+          utils.path_remove_trailing(utils.path_join({root, body}))
+        ] = head
       end
     end
   end
-  if with_redraw then
-    require'nvim-tree.lib'.redraw()
+end
+
+local function run_status_update(root, on_stdout, callback)
+  return function(_, data)
+    local job = { 'git', 'status', '--porcelain=v1' }
+    if vim.trim(data[1]) ~= 'false' then
+      table.insert(job, '-u')
+    end
+
+    if vim.g.nvim_tree_gitignore ~= -1 then
+      table.insert(job, '--ignored=matching')
+    end
+
+    vim.fn.jobstart(job, {
+      stdin = nil,
+      detach = true,
+      cwd = root,
+      on_stdout = on_stdout,
+      on_exit = function(_, code)
+        if code ~= 0 then
+          return
+        end
+        running_jobs[root] = nil
+        if #running_jobs == 0 then
+          callback()
+        end
+      end,
+    })
   end
 end
 
----Check if the given path is ignored by git.
----@param path string Absolute path
----@return boolean
-function M.should_gitignore(path)
-  for _, paths in pairs(gitignore_map) do
-    if paths[path] == true then
-      return true
+local function run_show_untracked(root, on_stdout)
+  local job = { 'git', 'config', '--type=bool', 'status.showUntrackedFiles' }
+  vim.fn.jobstart(job, {
+    stdin = nil,
+    detach = true,
+    cwd = root,
+    stdout_buffered = true,
+    on_stdout = on_stdout
+  })
+end
+
+local function update(root, callback)
+  running_jobs[root] = true
+  run_show_untracked(
+    root, run_status_update(
+      root,
+      apply_status_update(root),
+      callback
+    )
+  )
+end
+
+local function create_root(cwd, callback)
+  return function(_, data)
+    local root = data[1]
+
+    if not root or #root == 0 or root:match('fatal') then
+      M.roots[cwd] = false
+      return callback()
+    end
+
+    if is_win32 then
+      root = root:gsub("/", "\\")
+    end
+
+    M.roots[root] = true
+    update(root, callback)
+  end
+end
+
+local function run_create_root(cwd, callback)
+  vim.fn.jobstart({
+    'git',
+    'rev-parse',
+    '--show-toplevel'
+  }, {
+      stdin = nil,
+      detach = true,
+      cwd = cwd,
+      on_stdout = create_root(cwd, callback),
+      stdout_buffered = true,
+    })
+end
+
+local function is_in_git(path)
+  if M.roots[path] then
+    return path
+  end
+
+  for name, status in pairs(M.roots) do
+    if status then
+      if utils.match_path(path, name) then
+        return name
+      end
     end
   end
-  return false
+end
+
+function M.analyze_cwd(cwd, callback)
+  if not config.use_git() or not cwd then
+    return callback()
+  end
+
+  if is_in_git(cwd) then
+    return callback()
+  end
+
+  run_create_root(cwd, callback)
+end
+
+
+local function reload_path(path, callback)
+  local keys = vim.tbl_filter(function(p)
+    return utils.match_path(p, path)
+  end, vim.tbl_keys(M.status))
+
+  M.status = vim.tbl_map(function(k)
+    return { [k] = M.status[k] }
+  end, keys)
+
+  for root, status in pairs(M.roots) do
+    if status and utils.match_path(path, root) then
+      return update(root, callback)
+    end
+  end
+
+  callback()
+end
+
+function M.reload(path, callback)
+  if not config.use_git() or #running_jobs > 0 then
+    return callback()
+  end
+
+  if path then
+    return reload_path(path, callback)
+  end
+
+  local will_update = false
+  M.status = {}
+  for root, status in pairs(M.roots) do
+    if status then
+      will_update = true
+      update(root, callback)
+    end
+  end
+  if not will_update then
+    callback()
+  end
 end
 
 return M
+

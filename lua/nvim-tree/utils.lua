@@ -1,25 +1,18 @@
 local M = {}
-local uv = vim.loop
 local api = vim.api
 
 function M.path_to_matching_str(path)
   return path:gsub('(%-)', '(%%-)'):gsub('(%.)', '(%%.)'):gsub('(%_)', '(%%_)')
 end
 
+function M.match_path(path, path2)
+  return vim.fn.stridx(path, path2) ~= -1
+end
+
 function M.echo_warning(msg)
   api.nvim_command('echohl WarningMsg')
   api.nvim_command("echom '[NvimTree] "..msg:gsub("'", "''").."'")
   api.nvim_command('echohl None')
-end
-
-function M.read_file(path)
-  local fd = uv.fs_open(path, "r", 438)
-  if not fd then return '' end
-  local stat = uv.fs_fstat(fd)
-  if not stat then return '' end
-  local data = uv.fs_read(fd, stat.size, 0)
-  uv.fs_close(fd)
-  return data or ''
 end
 
 local path_separator = package.config:sub(1,1)
@@ -79,17 +72,19 @@ end
 
 -- get the node from the tree that matches the predicate
 -- @param nodes list of node
--- @param fn    function(node): boolean
-function M.find_node(nodes, fn)
-  local i = 1
+-- @param fn    function(node, index): boolean
+-- @param idx   nil (internal)
+function M.find_node(nodes, fn, idx)
+  local i = idx or 1
+  local glgn = require'nvim-tree.tree'.Tree.get_last_grouped_node
   for _, node in ipairs(nodes) do
-    if fn(node) then return node, i end
-    if node.open and #node.entries > 0 then
-      local n, idx = M.find_node(node.entries, fn)
-      i = i + idx
+    node = glgn(node)
+    if fn(node, i) then return node, i end
+    i = i + 1
+    if node.open and #node.children > 0 then
+      local n, new_idx = M.find_node(node.children, fn, i)
+      i = new_idx
       if n then return n, i end
-    else
-      i = i + 1
     end
   end
   return nil, i

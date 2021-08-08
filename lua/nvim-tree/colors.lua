@@ -1,5 +1,4 @@
 local api = vim.api
-local config = require'nvim-tree.config'
 
 local M = {}
 
@@ -79,9 +78,6 @@ local function get_links()
 end
 
 function M.setup()
-  if config.get_icon_state().show_file_icon then
-    require'nvim-web-devicons'.setup()
-  end
   local higlight_groups = get_hl_groups()
   for k, d in pairs(higlight_groups) do
     local gui = d.gui and ' gui='..d.gui or ''

@@ -1,11 +1,11 @@
 local api = vim.api
 local luv = vim.loop
-local open_mode = luv.constants.O_CREAT + luv.constants.O_WRONLY + luv.constants.O_TRUNC
 
 local utils = require'nvim-tree.utils'
 local view = require'nvim-tree.view'
 local lib = require'nvim-tree.lib'
 local events = require'nvim-tree.events'
+local Tree = require'nvim-tree.tree'.Tree
 local M = {}
 local clipboard = {
   move = {},
@@ -13,11 +13,11 @@ local clipboard = {
 }
 
 local function focus_file(file)
-  local _, i = utils.find_node(
-    lib.Tree.entries,
-    function(node) return node.absolute_path == file end
-  )
-  view.set_cursor({i+1, 1})
+  -- local _, i = utils.find_node(
+  --   lib.Tree.entries,
+  --   function(node) return node.absolute_path == file end
+  -- )
+  -- view.set_cursor({i+1, 1})
 end
 
 local function create_file(file)
@@ -29,16 +29,12 @@ local function create_file(file)
       return
     end
   end
-  luv.fs_open(file, "w", open_mode, vim.schedule_wrap(function(err, fd)
+  luv.fs_open(file, "w", 438, vim.schedule_wrap(function(err, fd)
     if err then
       api.nvim_err_writeln('Couldn\'t create file '..file)
     else
-      -- FIXME: i don't know why but libuv keeps creating file with executable permissions
-      -- this is why we need to chmod to default file permissions
-      luv.fs_chmod(file, 420)
       luv.fs_close(fd)
       events._dispatch_file_created(file)
-      lib.refresh_tree()
       focus_file(file)
     end
   end))
@@ -53,16 +49,16 @@ local function get_num_entries(iter)
 end
 
 function M.create(node)
-  node = lib.get_last_group_node(node)
+  node = Tree.get_last_grouped_node(node)
   if node.name == '..' then
     node = {
       absolute_path = lib.Tree.cwd,
-      entries = lib.Tree.entries,
+      entries = lib.Tree.children,
     }
   end
 
   local add_into
-  if node.entries ~= nil then
+  if node.children ~= nil then
     add_into = utils.path_add_trailing(node.absolute_path)
   else
     add_into = node.absolute_path:sub(0, -(#node.name + 1))
@@ -99,7 +95,6 @@ function M.create(node)
       if idx == num_entries then
         events._dispatch_folder_created(abs_path)
         api.nvim_out_write('Folder '..abs_path..' was properly created\n')
-        lib.refresh_tree()
       end
     else
       create_file(abs_path)
@@ -216,7 +211,7 @@ local function do_single_paste(source, dest, action_type, action_fn)
 end
 
 local function do_paste(node, action_type, action_fn)
-  node = lib.get_last_group_node(node)
+  node = Tree.get_last_grouped_node(node)
   if node.name == '..' then return end
   local clip = clipboard[action_type]
   if #clip == 0 then return end
@@ -237,7 +232,6 @@ local function do_paste(node, action_type, action_fn)
   end
 
   clipboard[action_type] = {}
-  return lib.refresh_tree()
 end
 
 local function add_to_clipboard(node, clip)
@@ -260,7 +254,7 @@ function M.remove(node)
   local ans = utils.get_user_input_char()
   utils.clear_prompt()
   if ans:match('^y') then
-    if node.entries ~= nil then
+    if node.children ~= nil then
       local success = remove_dir(node.absolute_path)
       if not success then
         return api.nvim_err_writeln('Could not remove '..node.name)
@@ -274,13 +268,12 @@ function M.remove(node)
       events._dispatch_file_removed(node.absolute_path)
       clear_buffer(node.absolute_path)
     end
-    lib.refresh_tree()
   end
 end
 
 function M.rename(with_sub)
   return function(node)
-    node = lib.get_last_group_node(node)
+    node = Tree.get_last_grouped_node(node)
     if node.name == '..' then return end
 
     local namelen = node.name:len()
@@ -296,7 +289,6 @@ function M.rename(with_sub)
     api.nvim_out_write(node.absolute_path..' ➜ '..new_name..'\n')
     rename_loaded_buffers(node.absolute_path, new_name)
     events._dispatch_node_renamed(abs_path, new_name)
-    lib.refresh_tree()
   end
 end
 
@@ -347,13 +339,13 @@ end
 function M.copy_path(node)
   local absolute_path = node.absolute_path
   local relative_path = utils.path_relative(absolute_path, lib.Tree.cwd)
-  local content = node.entries ~= nil and utils.path_add_trailing(relative_path) or relative_path
+  local content = node.children ~= nil and utils.path_add_trailing(relative_path) or relative_path
   return copy_to_clipboard(content)
 end
 
 function M.copy_absolute_path(node)
   local absolute_path = node.absolute_path
-  local content = node.entries ~= nil and utils.path_add_trailing(absolute_path) or absolute_path
+  local content = node.children ~= nil and utils.path_add_trailing(absolute_path) or absolute_path
   return copy_to_clipboard(content)
 end
 

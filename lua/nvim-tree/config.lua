@@ -58,8 +58,14 @@ function M.get_icon_state()
     end
   end
 
+  local has_devicon, devicons = pcall(require, 'nvim-web-devicons')
+  local show_file_icon = show_icons.files == 1 and has_devicon
+  if show_file_icon and not devicons.has_loaded() then
+    devicons.setup()
+  end
+
   return {
-    show_file_icon = show_icons.files == 1 and vim.g.nvim_web_devicons == 1,
+    show_file_icon = show_file_icon,
     show_folder_icon = show_icons.folders == 1,
     show_git_icon = show_icons.git == 1,
     show_folder_arrows = show_icons.folder_arrows == 1,

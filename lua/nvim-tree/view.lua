@@ -113,11 +113,6 @@ function M._wipe_rogue_buffer()
   end
 end
 
-local function warn_wrong_mapping()
-  local warn_str = "Wrong configuration for keymaps, refer to the new documentation. Keymaps setup aborted"
-  require'nvim-tree.utils'.echo_warning(warn_str)
-end
-
 -- set user options and create tree buffer (should never be wiped)
 function M.setup()
   M.View.side = vim.g.nvim_tree_side or M.View.side
@@ -143,22 +138,10 @@ function M.setup()
   if vim.g.nvim_tree_disable_default_keybindings == 1 then
     M.View.bindings = user_mappings
   else
-    local ok, result = pcall(vim.fn.extend, M.View.bindings, user_mappings)
-    if not ok then
-      -- TODO: remove this in a few weeks
-      warn_wrong_mapping()
-      return
-    else
-      M.View.bindings = result
-    end
+    M.View.bindings = vim.tbl_deep_extend('force', M.View.bindings, user_mappings)
   end
 
   for _, b in pairs(M.View.bindings) do
-    -- TODO: remove this in a few weeks
-    if type(b) == "string" then
-      warn_wrong_mapping()
-      break
-    end
     if type(b.key) == "table" then
       for _, key in pairs(b.key) do
         a.nvim_buf_set_keymap(M.View.bufnr, b.mode or 'n', key, b.cb, { noremap = true, silent = true, nowait = true })

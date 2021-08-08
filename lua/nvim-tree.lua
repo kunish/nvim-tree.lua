@@ -3,6 +3,7 @@ local lib = require'nvim-tree.lib'
 local config = require'nvim-tree.config'
 local colors = require'nvim-tree.colors'
 local renderer = require'nvim-tree.renderer'
+local opener = require'nvim-tree.opener'
 local fs = require'nvim-tree.fs'
 local utils = require'nvim-tree.utils'
 local view = require'nvim-tree.view'
@@ -93,8 +94,8 @@ local keypress_funcs = {
   dir_up = lib.dir_up,
   close = function() M.close() end,
   preview = function(node)
-    if node.entries ~= nil or node.name == '..' then return end
-    return lib.open_file('preview', node.absolute_path)
+    if node.children ~= nil or node.name == '..' then return end
+    return opener.open_file('preview', node.absolute_path)
   end,
   system_open = function(node)
     if vim.g.nvim_tree_system_open_command == nil then
@@ -152,48 +153,23 @@ function M.on_keypress(mode)
 
   if node.name == ".." then
     return lib.change_dir("..")
-  elseif mode == "cd" and node.entries ~= nil then
-    return lib.change_dir(lib.get_last_group_node(node).absolute_path)
+  elseif mode == "cd" and node.children ~= nil then
+    -- return lib.change_dir(lib.get_last_group_node(node).absolute_path)
   elseif mode == "cd" then
     return
   end
 
-  if node.link_to and not node.entries then
-    lib.open_file(mode, node.link_to)
-  elseif node.entries ~= nil then
-    lib.unroll_dir(node)
+  if node.link_to and not node.children then
+    opener.open_file(mode, node.link_to)
+  elseif node.children ~= nil then
+    lib.toggle_collapse(node)
   else
-    lib.open_file(mode, node.absolute_path)
+    opener.open_file(mode, node.absolute_path)
   end
-end
-
-function M.refresh()
-  lib.refresh_tree()
 end
 
 function M.print_clipboard()
   fs.print_clipboard()
-end
-
-function M.on_enter()
-  local bufnr = api.nvim_get_current_buf()
-  local bufname = api.nvim_buf_get_name(bufnr)
-  local buftype = api.nvim_buf_get_option(bufnr, 'filetype')
-  local ft_ignore = vim.g.nvim_tree_auto_ignore_ft or {}
-
-  local stats = luv.fs_stat(bufname)
-  local is_dir = stats and stats.type == 'directory'
-
-  local disable_netrw = vim.g.nvim_tree_disable_netrw or 1
-  local hijack_netrw = vim.g.nvim_tree_hijack_netrw or 1
-  if is_dir then
-    lib.Tree.cwd = vim.fn.expand(bufname)
-  end
-  local netrw_disabled = hijack_netrw == 1 or disable_netrw == 1
-  local should_open = vim.g.nvim_tree_auto_open == 1
-    and ((is_dir and netrw_disabled) or bufname == '')
-    and not vim.tbl_contains(ft_ignore, buftype)
-  lib.init(should_open, should_open)
 end
 
 local function is_file_readable(fname)
@@ -209,13 +185,10 @@ function M.find_file(with_open)
   if with_open then
     M.open()
     view.focus()
-    if not is_file_readable(filepath) then return end
-    lib.set_index_and_redraw(filepath)
-    return
   end
 
   if not is_file_readable(filepath) then return end
-  lib.set_index_and_redraw(filepath)
+  -- lib.set_index_and_redraw(filepath)
 end
 
 function M.resize(size)
@@ -289,8 +262,78 @@ function M.place_cursor_on_node()
   api.nvim_win_set_cursor(0, {cursor[1], idx})
 end
 
-view.setup()
-colors.setup()
-vim.defer_fn(M.on_enter, 1)
+-- TODO: above this needs some refactoring, lib should expose routing, and implementations should go in separate files
+
+local function manage_netrw(disable_netrw, hijack_netrw)
+  if disable_netrw then
+    vim.g.loaded_netrw = 1
+    vim.g.loaded_netrwPlugin = 1
+  elseif hijack_netrw then
+    vim.cmd "silent! autocmd! FileExplorer *"
+  end
+end
+
+local function setup_vim_commands()
+  vim.cmd [[
+    command! NvimTreeClipboard lua require'nvim-tree'.print_clipboard()
+    command! NvimTreeFindFile lua require'nvim-tree'.find_file()
+    command! -nargs=1 NvimTreeResize lua require'nvim-tree'.resize(<args>)
+  ]]
+end
+
+local function setup_autocommands(opts)
+  vim.cmd "augroup NvimTree"
+  vim.cmd [[
+    """ find file in the tree when entering a buffer
+    " au BufEnter * lua require'nvim-tree'.buf_enter()
+
+    """ reset highlights when colorscheme is changed
+    " au ColorScheme * lua require'nvim-tree'.reset_highlight()
+
+    """ deletes the existing buffer when saved in a session to avoid conflicts
+    au SessionLoadPost * lua require'nvim-tree.view'._wipe_rogue_buffer()
+  ]]
+
+  if opts.lsp_diagnostics then
+    vim.cmd "au User LspDiagnosticsChanged lua require'nvim-tree.diagnostics'.update()"
+  end
+  if opts.auto_close then
+    vim.cmd "au WinClosed * lua require'nvim-tree'.on_leave()"
+  end
+  if opts.tab_open then
+    vim.cmd "au TabEnter * lua require'nvim-tree'.tab_change()"
+  end
+  if opts.hijack_cursor then
+    vim.cmd "au CursorMoved NvimTree lua require'nvim-tree'.place_cursor_on_node()"
+  end
+  if opts.update_cwd then
+    vim.cmd "au DirChanged * lua require'nvim-tree.lib'.change_dir(vim.loop.cwd())"
+  end
+  vim.cmd "augroup end"
+end
+
+local DEFAULT_OPTS = {
+  disable_netrw     = true,
+  hijack_netrw      = true,
+  on_enter          = false,
+  lsp_diagnostics   = false,
+  auto_close        = false,
+  tab_open          = false,
+  hijack_cursor     = false,
+  update_cwd        = false,
+}
+
+function M.setup(conf)
+  local opts = vim.tbl_deep_extend('force', DEFAULT_OPTS, conf or {})
+
+  manage_netrw(opts.disable_netrw, opts.hijack_netrw)
+
+  view.setup()
+  colors.setup()
+  lib.setup(opts)
+
+  setup_autocommands(opts)
+  setup_vim_commands()
+end
 
 return M

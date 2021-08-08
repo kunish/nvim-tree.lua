@@ -86,8 +86,9 @@ Determines whether to include in g:nvim_tree_ignore
 files ignored by git.
 
 Must be:
-    0: not ignored
-    1: ignored files from `git ls-files --others --ignored --exclude-standard --directory`
+    -1: not ignored and not loaded
+    0: not ignored but loaded with --ignored=matching and shown in the tree as ignored (which can cause performance issues on huge git repositories)
+    1: ignored files from `git status --ignored=matching`
 
 >
 |g:nvim_tree_show_icons|			        *g:nvim_tree_show_icons*
