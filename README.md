@@ -288,6 +288,7 @@ This plugin is very fast because it uses the `libuv` `scandir` and `scandir_next
 - Git integration (icons and file highlight)
 - Lsp diagnostics integration (signs)
 - Indent markers
+- Marks (for bulk actions)
 - Mouse support
 - It's fast
 
