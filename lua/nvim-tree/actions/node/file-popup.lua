@@ -1,9 +1,19 @@
-local utils = require "nvim-tree.utils"
+local utils = require("nvim-tree.utils")
 
 local M = {}
 
+---@param node Node
+---@return table
 local function get_formatted_lines(node)
   local stats = node.fs_stat
+  if stats == nil then
+    return {
+      "",
+      "  Can't retrieve file information",
+      "",
+    }
+  end
+
   local fpath = " fullpath: " .. node.absolute_path
   local created_at = " created:  " .. os.date("%x %X", stats.birthtime.sec)
   local modified_at = " modified: " .. os.date("%x %X", stats.mtime.sec)
@@ -21,6 +31,7 @@ end
 
 local current_popup = nil
 
+---@param node Node
 local function setup_window(node)
   local lines = get_formatted_lines(node)
 
@@ -39,19 +50,21 @@ local function setup_window(node)
     file_path = node.absolute_path,
   }
   local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[bufnr].bufhidden = "wipe"
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   vim.api.nvim_win_set_buf(winnr, bufnr)
 end
 
 function M.close_popup()
   if current_popup ~= nil then
-    vim.api.nvim_win_close(current_popup.winnr, { force = true })
-    vim.cmd "augroup NvimTreeRemoveFilePopup | au! CursorMoved | augroup END"
+    vim.api.nvim_win_close(current_popup.winnr, true)
+    vim.cmd("augroup NvimTreeRemoveFilePopup | au! CursorMoved | augroup END")
 
     current_popup = nil
   end
 end
 
+---@param node Node
 function M.toggle_file_info(node)
   if node.name == ".." then
     return

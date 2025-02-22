@@ -1,9 +1,11 @@
-local utils = require "nvim-tree.utils"
-local core = require "nvim-tree.core"
-local Iterator = require "nvim-tree.iterators.node-iterator"
+local utils = require("nvim-tree.utils")
+local core = require("nvim-tree.core")
+local Iterator = require("nvim-tree.iterators.node-iterator")
 
 local M = {}
 
+---@param direction string
+---@return fun(node: Node): nil
 function M.fn(direction)
   return function(node)
     if node.name == ".." or not direction then
@@ -13,7 +15,7 @@ function M.fn(direction)
     local first, last, next, prev = nil, nil, nil, nil
     local found = false
     local parent = node.parent or core.get_explorer()
-    Iterator.builder(parent.nodes)
+    Iterator.builder(parent and parent.nodes or {})
       :recursor(function()
         return nil
       end)

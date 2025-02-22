@@ -1,3 +1,5 @@
+local DirectoryNode = require("nvim-tree.node.directory")
+
 local M = {}
 
 local function check_siblings_for_folder(node, with_arrows)
@@ -19,7 +21,7 @@ local function check_siblings_for_folder(node, with_arrows)
   return false
 end
 
-local function get_padding_indent_markers(depth, idx, nodes_number, markers, with_arrows, inline_arrows, node)
+local function get_padding_indent_markers(depth, idx, nodes_number, markers, with_arrows, inline_arrows, node, early_stop)
   local base_padding = with_arrows and (not node.nodes or depth > 0) and "  " or ""
   local padding = (inline_arrows or depth == 0) and base_padding or ""
 
@@ -27,12 +29,10 @@ local function get_padding_indent_markers(depth, idx, nodes_number, markers, wit
     local has_folder_sibling = check_siblings_for_folder(node, with_arrows)
     local indent = string.rep(" ", M.config.indent_width - 1)
     markers[depth] = idx ~= nodes_number
-    for i = 1, depth do
+    for i = 1, depth - early_stop do
       local glyph
       if idx == nodes_number and i == depth then
-        local bottom_width = M.config.indent_width
-          - 2
-          + (with_arrows and not inline_arrows and has_folder_sibling and 2 or 0)
+        local bottom_width = M.config.indent_width - 2 + (with_arrows and not inline_arrows and has_folder_sibling and 2 or 0)
         glyph = M.config.indent_markers.icons.corner
           .. string.rep(M.config.indent_markers.icons.bottom, bottom_width)
           .. (M.config.indent_width > 1 and " " or "")
@@ -58,24 +58,15 @@ local function get_padding_indent_markers(depth, idx, nodes_number, markers, wit
   return padding
 end
 
-local function get_padding_arrows(node, indent)
-  if node.nodes then
-    return M.config.icons.glyphs.folder[node.open and "arrow_open" or "arrow_closed"] .. " "
-  elseif indent then
-    return "  "
-  else
-    return ""
-  end
-end
-
 ---@param depth integer
 ---@param idx integer
 ---@param nodes_number integer
----@param node table
+---@param node Node
 ---@param markers table
+---@param early_stop integer?
 ---@return HighlightedString
-function M.get_padding(depth, idx, nodes_number, node, markers)
-  local padding = ""
+function M.get_indent_markers(depth, idx, nodes_number, node, markers, early_stop)
+  local str = ""
 
   local show_arrows = M.config.icons.show.folder_arrow
   local show_markers = M.config.indent_markers.enable
@@ -83,16 +74,39 @@ function M.get_padding(depth, idx, nodes_number, node, markers)
   local indent_width = M.config.indent_width
 
   if show_markers then
-    padding = padding .. get_padding_indent_markers(depth, idx, nodes_number, markers, show_arrows, inline_arrows, node)
+    str = str .. get_padding_indent_markers(depth, idx, nodes_number, markers, show_arrows, inline_arrows, node, early_stop or 0)
   else
-    padding = padding .. string.rep(" ", depth * indent_width)
+    str = str .. string.rep(" ", depth * indent_width)
   end
 
-  if show_arrows then
-    padding = padding .. get_padding_arrows(node, not show_markers)
+  return { str = str, hl = { "NvimTreeIndentMarker" } }
+end
+
+---@param node Node
+---@return HighlightedString[]|nil
+function M.get_arrows(node)
+  if not M.config.icons.show.folder_arrow then
+    return
   end
 
-  return { str = padding, hl = "NvimTreeIndentMarker" }
+  local str
+  local hl = "NvimTreeFolderArrowClosed"
+
+  local dir = node:as(DirectoryNode)
+  if dir then
+    if dir.open then
+      str = M.config.icons.glyphs.folder["arrow_open"] .. " "
+      hl = "NvimTreeFolderArrowOpen"
+    else
+      str = M.config.icons.glyphs.folder["arrow_closed"] .. " "
+    end
+  elseif M.config.indent_markers.enable then
+    str = ""
+  else
+    str = "  "
+  end
+
+  return { str = str, hl = { hl } }
 end
 
 function M.setup(opts)
@@ -107,7 +121,7 @@ function M.setup(opts)
       return " "
     end
     -- return the first character from the UTF-8 encoded string; we may use utf8.codes from Lua 5.3 when available
-    return symbol:match "[%z\1-\127\194-\244][\128-\191]*"
+    return symbol:match("[%z\1-\127\194-\244][\128-\191]*")
   end
 
   for k, v in pairs(M.config.indent_markers.icons) do

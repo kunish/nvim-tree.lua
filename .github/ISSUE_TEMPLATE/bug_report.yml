@@ -13,6 +13,8 @@ body:
         * ensure that nvim-tree is updated to the latest version
 
         If you are experiencing performance issues, please [enable profiling](https://github.com/nvim-tree/nvim-tree.lua#performance-issues) and attach the logs.
+
+        Please note that nvim-tree team members do not have access to nor expertise with Windows. You will need to be an active participant during resolution.
   - type: textarea
     attributes:
       label: "Description"
@@ -38,6 +40,12 @@ body:
       required: true
   - type: input
     attributes:
+      label: "Windows variant"
+      placeholder: "WSL, PowerShell, cygwin, msys"
+    validations:
+      required: false
+  - type: input
+    attributes:
       label: "nvim-tree version"
       description: "`cd <your-package-directory>/nvim-tree.lua ; git log --format='%h' -n 1`"
       placeholder: |
@@ -46,12 +54,14 @@ body:
       required: true
   - type: textarea
     attributes:
-      label: "Minimal config"
+      label: "Clean room replication"
       description: "Minimal(!) configuration necessary to reproduce the issue.
 
-        See [wiki: Clean Room Replication](https://github.com/nvim-tree/nvim-tree.lua/wiki/Troubleshooting#clean-room-replication) for instructions.
+        If not provided it is very unlikely that the nvim-tree team will be able to address your issue.
 
-        Please paste the contents of your `/tmp/nvt-min.lua` here."
+        See [wiki: Clean Room Replication](https://github.com/nvim-tree/nvim-tree.lua/wiki/Troubleshooting#clean-room-replication) for instructions and paste the contents of your `/tmp/nvt-min.lua` here.
+
+        Please do NOT post a configuration that uses other plugin managers such as lazy, see [wiki: Lazy Loading](https://github.com/nvim-tree/nvim-tree.lua/wiki/Installation#lazy-loading)"
       render: lua
     validations:
       required: true
